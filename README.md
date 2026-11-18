@@ -292,3 +292,66 @@ O esqueleto não determina sua hierarquia de classes.
 - Biblioteca JSON C++ ausente: documente sua escolha e instalação no README e CI.
 
 Consulte [o contrato completo](docs/CONTRATO.md) antes de alterar a comunicação.
+
+## Etapa 01 — Aquisição e telemetria
+
+### Dependência adicional C++
+
+O controlador utiliza a biblioteca nlohmann/json
+para leitura, validação e escrita de arquivos JSON.
+
+Instalação no Ubuntu/WSL:
+
+```bash
+sudo apt install nlohmann-json3-dev
+```
+
+A dependência também foi incluída no GitHub Actions.
+
+### Matriz de testes autorais
+
+| Objeto/método | Comportamento verificado | Arquivo de teste | Tipo de caso | Lacuna conhecida |
+|---|---|---|---|---|
+| Medicao | Validação de valores, unidades e estados | autorais_medicao.cpp | Comum, fronteira e falha | Nem todas as combinações inválidas foram testadas |
+| Aquisicao::lerArquivo | Leitura de uma aquisição válida | autorais_aquisicao.cpp | Comum | Diferentes combinações de dados válidos |
+| Aquisicao::lerArquivo | Rejeição de entradas inválidas | autorais_aquisicao_falhas.cpp | Fronteira e falha | Nem todas as combinações de campos inválidos |
+| EstadoAquisicao::avaliar e registrar | Sessões, ciclos e preservação do estado | autorais_estado_aquisicao.cpp | Comum, fronteira e falha | Alternância entre múltiplas sessões |
+| EstadoAquisicao::carregar e salvar | Persistência e recuperação do estado | autorais_estado_persistencia.cpp | Comum e falha | Falha durante a substituição do arquivo |
+| ValidadeTemporal::avaliar | Validade, expiração e timestamp futuro | autorais_validade_temporal.cpp | Comum, fronteira e falha | Conversão de diferentes datas válidas |
+| Telemetria::publicar | Publicação, preservação dos dados e substituição do JSON | autorais_telemetria.cpp | Comum e falha | Interrupção durante a gravação |
+
+### Resultados dos testes
+
+- 15 testes oficiais aprovados.
+- 7 executáveis autorais C++ aprovados.
+
+### Cobertura C++
+
+| Métrica | Resultado |
+|---|---:|
+| Linhas | 85,9% |
+| Funções | 100% |
+| Ramificações | 48,5% |
+
+A cobertura de ramificações indica que nem todos
+os caminhos condicionais e de exceção foram
+exercitados pelos testes.
+
+### Reprodução dos testes
+
+```bash
+make test ETAPA=01
+```
+
+### Reprodução da cobertura
+
+```bash
+make cobertura ETAPA=01 PYTHON=.venv/bin/python
+```
+
+### Documentação da arquitetura
+
+Consulte [docs/ARQUITETURA.md](docs/ARQUITETURA.md)
+para conhecer as responsabilidades das classes,
+o diagrama UML e as decisões de implementação.
+
