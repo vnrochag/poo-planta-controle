@@ -2,8 +2,8 @@
 
 Repositório-base público: `rafaelrezo/poo-planta-controle`.
 Faça fork para desenvolver seu projeto. A planta de tanque é fornecida pronta;
-o controlador C++ e o Streamlit são esqueletos executáveis com comportamento
-incompleto identificado. A planta também pode ser usada isoladamente em aulas
+o controlador C++ implementa aquisição, controle e alarmes. O Streamlit
+ainda apresenta a tela inicial. A planta também pode ser usada isoladamente em aulas
 de arquivos, JSON, validação e tratamento de erros.
 
 Você começará executando a planta pronta, verá o arquivo criado e só depois
@@ -19,16 +19,15 @@ Planta pronta -> planta.json -> seu controlador C++ -> telemetria.json -> sua te
 
 ## 1. O que já funciona
 
-| Parte | Estado inicial | Responsabilidade |
+| Parte | Estado no projeto | Responsabilidade |
 |---|---|---|
 | `planta/simulador.py` | pronta, testada, biblioteca padrão Python | gerar leituras e aplicar comandos |
-| `controlador/main.cpp` | compila e informa que está incompleto | aquisição e controle a desenvolver |
+| `controlador/main.cpp` | aquisição e controle automático implementados | validar snapshots, publicar comandos e gerar telemetria com alarmes |
 | `supervisor/app.py` | abre uma página inicial | supervisão a desenvolver |
 | `tools/enviar_comando.py` | pronto | teste manual de atuação, sem política automática |
 | `docs/CONTRATO.md` | fornecido | formato, autoria dos arquivos e regras de troca |
 
-Não há algoritmo automático de controle fornecido. Tanque, nível e temperatura
-são um ponto de partida; outro contexto pode ser escolhido e documentado.
+As políticas do tanque foram implementadas pela equipe.
 O enunciado e os critérios de avaliação são distribuídos separadamente pelo docente.
 
 ## 2. Fork e requisitos
@@ -112,21 +111,16 @@ unidade no JSON, e explicar por que o arquivo termina no ciclo 3?
 
 ### 3.2. Entender como seu código utilizará esses dados
 
-O controlador C++ deverá abrir `dados/planta.json`, validar seus campos e
-representar as medições nos objetos que você criar. Depois, sua política decidirá
-a atuação e publicará o comando. A telemetria validada será a entrada do Streamlit.
-O controlador recebe medições da planta; ele não precisa sorteá-las novamente.
-
-Execute o esqueleto atual:
+O controlador C++ valida `dados/planta.json`, publica a telemetria e calcula
+a atuação quando ambos os sensores estão operando. Para processar uma aquisição
+recente e encerrar, após gerar um snapshot da planta:
 
 ```bash
 make controlador
 ```
 
-Ele mostra `CONTROLADOR INCOMPLETO`. Isso é esperado: ainda não lê a aquisição,
-não publica `telemetria.json` e não controla a planta. O teste da etapa 01
-mostrará o primeiro comportamento que falta implementar. O programa de inspeção
-fornecido serve para entender o arquivo; a aquisição em C++ é trabalho da equipe.
+Esse alvo usa a política ON/OFF. Veja a seção da Etapa 02 para executar
+o controle em laço contínuo ou selecionar a política por faixas.
 
 ### 3.3. Ver uma atuação mudar a planta
 
@@ -188,10 +182,8 @@ Na etapa 03, instale `requirements-dev.txt` e use
 `make test ETAPA=03 PYTHON=.venv/bin/python`; o ambiente ativo da CI já tem as
 dependências. `AppTest` verifica a tela sem iniciar servidor nem navegador.
 
-As etapas 01–03 falham inicialmente porque o aluno ainda não implementou os
-comportamentos. A mensagem `Falta telemetria.json` orienta a primeira aquisição.
-O controlador deve aceitar `--dados DIRETORIO --uma-vez`; `--uma-vez` processa uma
-aquisição e encerra. A equipe também implementa o laço contínuo para a demonstração.
+O controlador aceita `--dados DIRETORIO --uma-vez`. Esse modo realiza uma
+tentativa de aquisição e encerra. O modo contínuo tenta adquirir a cada segundo.
 
 Fluxo de uma etapa, após integrar a anterior:
 
@@ -308,7 +300,7 @@ sudo apt install nlohmann-json3-dev
 
 A dependência também foi incluída no GitHub Actions.
 
-### Matriz de testes autorais
+### Matriz cumulativa de testes
 
 | Objeto/método | Comportamento verificado | Arquivo de teste | Tipo de caso | Lacuna conhecida |
 |---|---|---|---|---|
@@ -319,8 +311,17 @@ A dependência também foi incluída no GitHub Actions.
 | EstadoAquisicao::carregar e salvar | Persistência e recuperação do estado | autorais_estado_persistencia.cpp | Comum e falha | Falha durante a substituição do arquivo |
 | ValidadeTemporal::avaliar | Validade, expiração e timestamp futuro | autorais_validade_temporal.cpp | Comum, fronteira e falha | Conversão de diferentes datas válidas |
 | Telemetria::publicar | Publicação, preservação dos dados e substituição do JSON | autorais_telemetria.cpp | Comum e falha | Interrupção durante a gravação |
+| Atuacao::Atuacao, bomba e aquecedor | Percentuais finitos em [0, 100] e consulta | autorais_atuacao.cpp | Comum, fronteira e falha | Validação de tipos JSON pertence à aquisição |
+| PoliticaControle::calcular e PoliticaOnOff::calcular | Chamada pela interface, histerese e potência parcial observada | autorais_politica_onoff.cpp | Comum e fronteira | Evolução longa do tanque fora do teste unitário |
+| PoliticaFaixas::calcular | Quatro faixas, transições exatas e comparação polimórfica | autorais_politica_faixas.cpp | Comum e fronteira | Evolução longa do tanque fora do teste unitário |
+| Comando::Comando e publicar | Identidade, percentuais, JSON UTF-8, substituição e limpeza do temporário | autorais_comando.cpp | Comum, fronteira e falha | Falha em flush ou fechamento, como disco cheio |
+| EstadoAquisicao::reservarComando, pendente, reconciliar e ultimoComandoConfirmado | Recuperação com mesmo ID e potência, confirmação atrasada e troca de sessão | autorais_estado_comandos.cpp | Comum, fronteira e falha | Interrupção nos demais pontos de escrita |
+| AvaliadorAlarmes::avaliar | Códigos, mensagens, severidades, simultaneidade e sensores em falha | autorais_avaliador_alarmes.cpp | Comum, fronteira e falha | Teste da avaliação isolada das operações de arquivo |
+| Fluxo do controlador e seleção da política | Aplicação, confirmação, repetição, regressão de ciclo, troca de sessão e seleção da política | test_controlador.py e autorais_integracao_controlador.py | Comum e falha | Laço contínuo validado em integração local |
+| Recuperação de comando pendente | Restaura mesmo ID e potências com arquivo ausente, inválido ou divergente, preservando o arquivo já correto | autorais_integracao_controlador.py | Comum e falha | ID pendente superado observado apenas no teste de estado |
+| Fluxo com falhas e alarmes | Estado inválido, bloqueio de escrita, aquisição expirada ou futura, sensores em falha e alarmes publicados | autorais_integracao_controlador.py | Comum, fronteira e falha | Erros no fechamento de arquivos |
 
-### Resultados dos testes
+### Resultados históricos da Etapa 01
 
 - 15 testes oficiais aprovados.
 - 7 executáveis autorais C++ aprovados.
@@ -355,3 +356,54 @@ Consulte [docs/ARQUITETURA.md](docs/ARQUITETURA.md)
 para conhecer as responsabilidades das classes,
 o diagrama UML e as decisões de implementação.
 
+## Etapa 02 — Controle e alarmes
+
+Compile com `make build`. Em um terminal, execute a planta com `make planta`.
+Em outro terminal, execute uma das opções de controle no mesmo diretório de dados.
+Use um único processo controlador por diretório.
+
+```bash
+./build/controlador --dados dados --politica on-off
+./build/controlador --dados dados --politica faixas
+```
+
+`on-off` é a política padrão. Use `--uma-vez` para processar um snapshot recente e
+encerrar. Confira `comando_planta.json` para ver o pedido e `planta.json` para
+ver `ultimo_comando` e os atuadores aplicados. O campo `alarmes` de
+`telemetria.json` contém os alarmes ativos no ciclo publicado.
+
+### Validação local
+
+```bash
+make test ETAPA=00 PYTHON=.venv/bin/python
+make test ETAPA=01 PYTHON=.venv/bin/python
+make test ETAPA=02 PYTHON=.venv/bin/python
+make cobertura ETAPA=02 PYTHON=.venv/bin/python
+```
+
+Em 26/11/2026 passaram 12, 15 e 17 testes oficiais nas Etapas 00, 01 e 02,
+respectivamente. Na rodada após acrescentar os testes de integração, cada suíte
+aprovou os 13 executáveis autorais C++ e os 8 novos casos autorais Python.
+O runner fornece `POO_CONTROLADOR` a esses casos. A cobertura usa o binário
+instrumentado `build/cobertura/controlador`.
+Em diretórios temporários, a planta e o controlador foram executados como
+processos independentes nas duas políticas. Foram observados comando, confirmação,
+expiração e retomada após reinícios. Cenários controlados também verificaram
+falha de publicação, recuperação da reserva, JSON inválido, falha de sensor e
+alarmes publicados.
+
+| Cobertura da suíte da Etapa 02 | Linhas ou instruções | Funções | Ramificações |
+|---|---:|---:|---:|
+| Controlador C++ | 85,4% → 92,7% | 97,4% → 100,0% | 43,7% → 51,2% |
+| `main.cpp` | 62,1% → 92,4% | 75,0% → 100,0% | 20,7% → 49,1% |
+| Python | 88,4% | — | 84,4% |
+
+A comparação usa a suíte da Etapa 02 antes e depois dos testes autorais de
+integração. A cobertura Python de instruções e ramificações permaneceu estável.
+O relatório combinado exibe 88%, com 95% para `planta/simulador.py` e 0% para
+`supervisor/app.py`, cuja implementação pertence à Etapa 03.
+
+O laço contínuo foi exercitado fora da medição automática. Em `main.cpp`,
+a mensagem para um pedido superado por um ID maior e opções secundárias da
+CLI ainda ficaram sem execução. Também permanecem lacunas de E/S, como a
+falha no fechamento de arquivos.
