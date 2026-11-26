@@ -1,6 +1,8 @@
 
 #include "Telemetria.hpp"
 
+#include "AvaliadorAlarmes.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <fstream>
@@ -48,6 +50,15 @@ void Telemetria::publicar(
         motivoSeguro = *dados.motivoSeguro;
     }
 
+    auto alarmes = nlohmann::json::array();
+    for (const auto& alarme : AvaliadorAlarmes::avaliar(dados.nivel, dados.temperatura)) {
+        alarmes.push_back({
+            {"codigo", alarme.codigo},
+            {"mensagem", alarme.mensagem},
+            {"severidade", alarme.severidade}
+        });
+    }
+
     // Monta a telemetria conforme o contrato.
     const nlohmann::json documento = {
         {"versao", dados.versao},
@@ -69,7 +80,7 @@ void Telemetria::publicar(
         {"erro_comando", erroComando},
         {"motivo_seguro", motivoSeguro},
 
-        {"alarmes", nlohmann::json::array()}
+        {"alarmes", alarmes}
     };
 
     // Define o caminho do arquivo temporario.

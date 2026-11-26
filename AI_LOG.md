@@ -29,3 +29,22 @@ As sugestões e os códigos gerados foram incorporados progressivamente ao proje
 A validação resultou na aprovação dos testes oficiais e dos sete executáveis autorais C++, além da geração dos relatórios de cobertura.
 
 A IA foi utilizada como ferramenta de apoio ao desenvolvimento e aprendizado, não substituindo a necessidade de compreender e validar a implementação.
+
+### Registro de uso de IA — Etapa 02
+
+O Codex apoiou a revisão do contrato e a implementação em blocos aprovados
+pelo estudante. O trabalho incluiu `Atuacao`, Strategy com duas políticas,
+Command, persistência e reconciliação, integração e alarmes. Ao final de cada
+bloco, o Codex explicou o código e os testes para revisão do estudante.
+
+Foram aprovados os limites de controle e alarme, o uso da atuação observada
+para histerese e a persistência da reserva antes da publicação. A proposta de
+alterar diretamente os arquivos de persistência por substituições de texto
+foi revista a pedido do estudante. As alterações foram verificadas com
+`git apply --check` e aplicadas por patch no WSL.
+
+Em 26/11/2026, a revisão local aprovou as suítes oficiais 00, 01 e 02 e os
+13 executáveis autorais C++. Foram gerados relatórios de cobertura C++ e
+Python e executados cenários de integração com as duas políticas, reinícios,
+falhas e alarmes. O estudante solicitou revisão do relatório antes da mudança
+de `ETAPA_ATUAL`.

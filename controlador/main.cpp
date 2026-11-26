@@ -1,14 +1,19 @@
 
 #include "Aquisicao.hpp"
 #include "EstadoAquisicao.hpp"
+#include "PoliticaFaixas.hpp"
+#include "PoliticaOnOff.hpp"
 #include "Telemetria.hpp"
 #include "ValidadeTemporal.hpp"
+
+#include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -31,10 +36,33 @@ void exibirMedicao(const Medicao& medicao) {
     std::cout << '\n';
 }
 
+// Verifica se a solicitacao recuperada ja esta disponivel para a planta.
+bool comandoPublicado(const Comando& comando, const std::filesystem::path& caminho) {
+    std::ifstream arquivo(caminho);
+    if (!arquivo.is_open()) {
+        return false;
+    }
+
+    const auto documento = nlohmann::json::parse(arquivo, nullptr, false);
+    return documento.is_object() &&
+           documento.contains("versao") && documento.at("versao").is_number_integer() &&
+           documento.contains("id") && documento.at("id").is_number_integer() &&
+           documento == nlohmann::json{
+               {"versao", 1},
+               {"sessao", comando.sessao()},
+               {"id", comando.id()},
+               {"atuadores", {
+                   {"bomba", comando.atuacao().bomba()},
+                   {"aquecedor", comando.atuacao().aquecedor()}
+               }}
+           };
+}
+
 // Processa uma aquisicao da planta.
 int processarAquisicao(
     const std::filesystem::path& diretorio,
-    bool umaVez) {
+    bool umaVez,
+    const PoliticaControle& politica) {
 
     try {
 
@@ -69,17 +97,6 @@ int processarAquisicao(
 
             std::cerr
                 << "Timestamp no futuro. Aquisicao rejeitada.\n";
-
-            return EXIT_FAILURE;
-        }
-
-        // Verifica o funcionamento dos sensores.
-        if (!dados.nivel.estaOperando() ||
-            !dados.temperatura.estaOperando()) {
-
-            std::cerr
-                << "Erro: sensor em falha. "
-                << "Controle nao autorizado.\n";
 
             return EXIT_FAILURE;
         }
@@ -135,8 +152,43 @@ int processarAquisicao(
                 return EXIT_FAILURE;
         }
 
-        // Publica a telemetria validada.
+        const auto pendenteAnterior = estado.pendente();
+        estado.reconciliar(dados.sessao, dados.ciclo, dados.ultimoComando);
+        if (pendenteAnterior && pendenteAnterior->comando.sessao() == dados.sessao) {
+            const auto id = static_cast<std::uint64_t>(pendenteAnterior->comando.id());
+            if (dados.ultimoComando == id) {
+                std::cout << "Comando confirmado pela planta: " << id << '\n';
+            } else if (dados.ultimoComando > id) {
+                std::cout << "Comando superado sem confirmacao observada: " << id << '\n';
+            }
+        }
+
+        // A telemetria mostra o snapshot da planta, inclusive uma medicao em falha.
         Telemetria::publicar(dados, caminhoTelemetria);
+
+        const auto caminhoComando = diretorio / "comando_planta.json";
+        if (dados.nivel.estaOperando() && dados.temperatura.estaOperando()) {
+            if (const auto pendente = estado.pendente()) {
+                if (!comandoPublicado(pendente->comando, caminhoComando)) {
+                    pendente->comando.publicar(caminhoComando);
+                    std::cout << "Comando pendente recuperado: " << pendente->comando.id() << '\n';
+                }
+            } else {
+                const Atuacao aplicada(dados.bombaAplicada, dados.aquecedorAplicado);
+                const Atuacao solicitada = politica.calcular(
+                    *dados.nivel.valor(), *dados.temperatura.valor(), aplicada);
+                const Comando comando = estado.reservarComando(
+                    dados.sessao, dados.ciclo, solicitada);
+
+                // Salva a identidade e os percentuais antes de tornar o pedido visivel.
+                estado.salvar(caminhoEstado);
+                comando.publicar(caminhoComando);
+                std::cout << "Comando publicado, aguardando confirmacao: "
+                          << comando.id() << '\n';
+            }
+        } else {
+            std::cerr << "Sensor em falha. Nenhum comando publicado.\n";
+        }
 
         // Registra e salva a aquisicao processada.
         estado.registrar(dados.sessao, dados.ciclo);
@@ -195,6 +247,7 @@ int main(int argc, char* argv[]) {
 
         std::filesystem::path diretorio = "dados";
         bool umaVez = false;
+        std::string nomePolitica = "on-off";
 
         // Interpreta os argumentos da CLI.
         for (int i = 1; i < argc; ++i) {
@@ -205,7 +258,7 @@ int main(int argc, char* argv[]) {
 
                 std::cout
                     << "Uso: controlador "
-                    << "--dados DIRETORIO [--uma-vez]\n";
+                    << "--dados DIRETORIO [--uma-vez] [--politica on-off|faixas]\n";
 
                 return EXIT_SUCCESS;
 
@@ -218,6 +271,16 @@ int main(int argc, char* argv[]) {
 
                 diretorio = argv[++i];
 
+            } else if (argumento == "--politica") {
+
+                if (i + 1 >= argc) {
+                    throw std::invalid_argument("Informe on-off ou faixas apos --politica");
+                }
+                nomePolitica = argv[++i];
+                if (nomePolitica != "on-off" && nomePolitica != "faixas") {
+                    throw std::invalid_argument("Politica desconhecida: " + nomePolitica);
+                }
+
             } else if (argumento == "--uma-vez") {
 
                 umaVez = true;
@@ -229,9 +292,15 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        const PoliticaOnOff onOff;
+        const PoliticaFaixas faixas;
+        const PoliticaControle& politica = nomePolitica == "faixas"
+            ? static_cast<const PoliticaControle&>(faixas)
+            : static_cast<const PoliticaControle&>(onOff);
+
         // Executa somente uma aquisicao, sem esperar.
         if (umaVez) {
-            return processarAquisicao(diretorio, true);
+            return processarAquisicao(diretorio, true, politica);
         }
 
         // Executa continuamente.
@@ -240,7 +309,7 @@ int main(int argc, char* argv[]) {
 
         while (true) {
 
-            processarAquisicao(diretorio, false);
+            processarAquisicao(diretorio, false, politica);
 
             std::this_thread::sleep_for(
                 std::chrono::seconds(1));
